@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "gora-data",
-    "slug": "snack-581bd070-54f4-4135-b757-ac4f028c5862",
+    "slug": "gora-data-1",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -25,6 +25,11 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "33e9346d-a3e9-412f-8103-762f3b11c652"
+      }
     }
   }
 }
