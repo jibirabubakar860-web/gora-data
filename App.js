@@ -14,6 +14,19 @@ import * as Notifications from 'expo-notifications';
 import Constants from 'expo-constants';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
+import * as Sentry from '@sentry/react-native';
+
+// ─── Crash reporting ────────────────────────────────────────────────────────
+// Must run before anything else in the app so it can catch errors from the
+// very start of the app lifecycle. The DSN below is a public identifier
+// (safe to have in client code, unlike an API secret) — it just tells the
+// Sentry SDK where to send error reports. Find it anytime at sentry.io under
+// your project's Settings > Client Keys (DSN).
+Sentry.init({
+  dsn: 'https://cd3ac26041ebd39b22d1ae4fec37445f@o4511866382647296.ingest.de.sentry.io/4511866401652816',
+  sendDefaultPii: true,
+  tracesSampleRate: 0.2,
+});
 
 // Foreground behavior: show an alert/banner + play sound even while the app is open.
 Notifications.setNotificationHandler({
@@ -321,27 +334,29 @@ function VerifyScreen({ phone, devOtp, onVerified, onBack }) {
 
   return (
     <SafeAreaView style={s.safeArea}>
-      <View style={s.loginWrap}>
-        <TouchableOpacity onPress={onBack} style={{ marginBottom: 20 }}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={s.loginTitle}>Verify Your Account</Text>
-        <Text style={s.loginSubtitle}>Enter the OTP sent to {phone} and your email</Text>
-        {devOtp ? <Text style={[s.loginSubtitle, { color: colors.accent }]}>Dev mode OTP: {devOtp}</Text> : null}
+      <KeyboardSafeScroll contentContainerStyle={{ flexGrow: 1 }}>
+        <View style={s.loginWrap}>
+          <TouchableOpacity onPress={onBack} style={{ marginBottom: 20 }}>
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={s.loginTitle}>Verify Your Account</Text>
+          <Text style={s.loginSubtitle}>Enter the OTP sent to {phone} and your email</Text>
+          {devOtp ? <Text style={[s.loginSubtitle, { color: colors.accent }]}>Dev mode OTP: {devOtp}</Text> : null}
 
-        <TextInput
-          style={s.input}
-          placeholder="6-digit OTP"
-          placeholderTextColor={colors.subtext}
-          keyboardType="number-pad"
-          maxLength={6}
-          value={otp}
-          onChangeText={setOtp}
-        />
-        <TouchableOpacity style={s.loginBtn} onPress={handleVerify} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify & Continue</Text>}
-        </TouchableOpacity>
-      </View>
+          <TextInput
+            style={s.input}
+            placeholder="6-digit OTP"
+            placeholderTextColor={colors.subtext}
+            keyboardType="number-pad"
+            maxLength={6}
+            value={otp}
+            onChangeText={setOtp}
+          />
+          <TouchableOpacity style={s.loginBtn} onPress={handleVerify} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify & Continue</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardSafeScroll>
     </SafeAreaView>
   );
 }
@@ -536,41 +551,43 @@ function ForgotPasswordScreen({ onBack, onCodeSent }) {
 
   return (
     <SafeAreaView style={s.safeArea}>
-      <View style={s.loginWrap}>
-        <TouchableOpacity onPress={step === 'method' ? () => setStep('identifier') : onBack} style={{ position: 'absolute', top: 20, left: 20 }}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={s.loginTitle}>Forgot Password</Text>
+      <KeyboardSafeScroll contentContainerStyle={{ flexGrow: 1 }}>
+        <View style={s.loginWrap}>
+          <TouchableOpacity onPress={step === 'method' ? () => setStep('identifier') : onBack} style={{ position: 'absolute', top: 20, left: 20 }}>
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={s.loginTitle}>Forgot Password</Text>
 
-        {step === 'identifier' && (
-          <>
-            <Text style={s.loginSubtitle}>Enter your email or phone number to continue</Text>
-            <TextInput
-              style={s.input}
-              placeholder="Email or phone number"
-              placeholderTextColor={colors.subtext}
-              value={identifier}
-              onChangeText={setIdentifier}
-              autoCapitalize="none"
-            />
-            <TouchableOpacity style={s.loginBtn} onPress={goToMethod}>
-              <Text style={s.loginBtnText}>Continue</Text>
-            </TouchableOpacity>
-          </>
-        )}
+          {step === 'identifier' && (
+            <>
+              <Text style={s.loginSubtitle}>Enter your email or phone number to continue</Text>
+              <TextInput
+                style={s.input}
+                placeholder="Email or phone number"
+                placeholderTextColor={colors.subtext}
+                value={identifier}
+                onChangeText={setIdentifier}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity style={s.loginBtn} onPress={goToMethod}>
+                <Text style={s.loginBtnText}>Continue</Text>
+              </TouchableOpacity>
+            </>
+          )}
 
-        {step === 'method' && (
-          <>
-            <Text style={s.loginSubtitle}>Where should we send your reset code?</Text>
-            <TouchableOpacity style={s.loginBtn} onPress={() => requestCode('sms')} disabled={loading}>
-              {loading && method === 'sms' ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send code via SMS</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity style={[s.loginBtn, { marginTop: 12 }]} onPress={() => requestCode('email')} disabled={loading}>
-              {loading && method === 'email' ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send code via Email</Text>}
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+          {step === 'method' && (
+            <>
+              <Text style={s.loginSubtitle}>Where should we send your reset code?</Text>
+              <TouchableOpacity style={s.loginBtn} onPress={() => requestCode('sms')} disabled={loading}>
+                {loading && method === 'sms' ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send code via SMS</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity style={[s.loginBtn, { marginTop: 12 }]} onPress={() => requestCode('email')} disabled={loading}>
+                {loading && method === 'email' ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send code via Email</Text>}
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
+      </KeyboardSafeScroll>
     </SafeAreaView>
   );
 }
@@ -619,34 +636,36 @@ function VerifyResetCodeScreen({ identifier, userId, method, onBack, onVerified 
 
   return (
     <SafeAreaView style={s.safeArea}>
-      <View style={s.loginWrap}>
-        <TouchableOpacity onPress={onBack} style={{ position: 'absolute', top: 20, left: 20 }}>
-          <Ionicons name="arrow-back" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={s.loginTitle}>Enter Code</Text>
-        <Text style={s.loginSubtitle}>We sent a 6-digit code to {identifier}</Text>
-        <TextInput
-          style={[s.input, { textAlign: 'center', fontSize: 20, letterSpacing: 8 }]}
-          placeholder="123456"
-          placeholderTextColor={colors.subtext}
-          keyboardType="number-pad"
-          maxLength={6}
-          value={code}
-          onChangeText={setCode}
-        />
-        <TouchableOpacity style={s.loginBtn} onPress={handleVerify} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify</Text>}
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleResend} disabled={cooldown > 0 || resending} style={{ marginTop: 18, alignItems: 'center' }}>
-          {resending ? (
-            <ActivityIndicator color={colors.accent} size="small" />
-          ) : (
-            <Text style={{ color: cooldown > 0 ? colors.subtext : colors.accent, fontSize: 13.5, fontWeight: '600' }}>
-              {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
-            </Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      <KeyboardSafeScroll contentContainerStyle={{ flexGrow: 1 }}>
+        <View style={s.loginWrap}>
+          <TouchableOpacity onPress={onBack} style={{ position: 'absolute', top: 20, left: 20 }}>
+            <Ionicons name="arrow-back" size={24} color={colors.text} />
+          </TouchableOpacity>
+          <Text style={s.loginTitle}>Enter Code</Text>
+          <Text style={s.loginSubtitle}>We sent a 6-digit code to {identifier}</Text>
+          <TextInput
+            style={[s.input, { textAlign: 'center', fontSize: 20, letterSpacing: 8 }]}
+            placeholder="123456"
+            placeholderTextColor={colors.subtext}
+            keyboardType="number-pad"
+            maxLength={6}
+            value={code}
+            onChangeText={setCode}
+          />
+          <TouchableOpacity style={s.loginBtn} onPress={handleVerify} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify</Text>}
+          </TouchableOpacity>
+          <TouchableOpacity onPress={handleResend} disabled={cooldown > 0 || resending} style={{ marginTop: 18, alignItems: 'center' }}>
+            {resending ? (
+              <ActivityIndicator color={colors.accent} size="small" />
+            ) : (
+              <Text style={{ color: cooldown > 0 ? colors.subtext : colors.accent, fontSize: 13.5, fontWeight: '600' }}>
+                {cooldown > 0 ? `Resend code in ${cooldown}s` : 'Resend code'}
+              </Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </KeyboardSafeScroll>
     </SafeAreaView>
   );
 }
@@ -675,15 +694,17 @@ function ResetPasswordScreen({ resetToken, onDone }) {
 
   return (
     <SafeAreaView style={s.safeArea}>
-      <View style={s.loginWrap}>
-        <Text style={s.loginTitle}>New Password</Text>
-        <Text style={s.loginSubtitle}>Choose a new password for your account</Text>
-        <TextInput style={s.input} placeholder="New password" placeholderTextColor={colors.subtext} secureTextEntry value={password} onChangeText={setPassword} />
-        <TextInput style={s.input} placeholder="Confirm password" placeholderTextColor={colors.subtext} secureTextEntry value={confirm} onChangeText={setConfirm} />
-        <TouchableOpacity style={s.loginBtn} onPress={handleReset} disabled={loading}>
-          {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Reset Password</Text>}
-        </TouchableOpacity>
-      </View>
+      <KeyboardSafeScroll contentContainerStyle={{ flexGrow: 1 }}>
+        <View style={s.loginWrap}>
+          <Text style={s.loginTitle}>New Password</Text>
+          <Text style={s.loginSubtitle}>Choose a new password for your account</Text>
+          <TextInput style={s.input} placeholder="New password" placeholderTextColor={colors.subtext} secureTextEntry value={password} onChangeText={setPassword} />
+          <TextInput style={s.input} placeholder="Confirm password" placeholderTextColor={colors.subtext} secureTextEntry value={confirm} onChangeText={setConfirm} />
+          <TouchableOpacity style={s.loginBtn} onPress={handleReset} disabled={loading}>
+            {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Reset Password</Text>}
+          </TouchableOpacity>
+        </View>
+      </KeyboardSafeScroll>
     </SafeAreaView>
   );
 }
@@ -1059,43 +1080,45 @@ function ChangePhoneScreen({ token, currentPhone, onBack, onChanged }) {
         <Text style={s.nameText}>Change Phone Number</Text>
       </View>
 
-      <View style={s.body}>
-        {step === 'request' ? (
-          <>
-            <Text style={{ color: colors.subtext, marginBottom: 16 }}>Current number: {currentPhone || '—'}</Text>
-            <TextInput
-              style={s.input}
-              placeholder="New phone number"
-              placeholderTextColor={colors.subtext}
-              keyboardType="phone-pad"
-              value={newPhone}
-              onChangeText={setNewPhone}
-            />
-            <TouchableOpacity style={s.loginBtn} onPress={requestChange} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send Verification Code</Text>}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={{ color: colors.subtext, marginBottom: 16 }}>Enter the code sent to {newPhone}</Text>
-            <TextInput
-              style={[s.input, { textAlign: 'center', fontSize: 20, letterSpacing: 8 }]}
-              placeholder="123456"
-              placeholderTextColor={colors.subtext}
-              keyboardType="number-pad"
-              maxLength={6}
-              value={code}
-              onChangeText={setCode}
-            />
-            <TouchableOpacity style={s.loginBtn} onPress={verifyChange} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify & Update</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setStep('request')} style={{ marginTop: 16, alignItems: 'center' }}>
-              <Text style={{ color: colors.accent, fontWeight: '600' }}>Use a different number</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView style={s.body} keyboardShouldPersistTaps="handled">
+          {step === 'request' ? (
+            <>
+              <Text style={{ color: colors.subtext, marginBottom: 16 }}>Current number: {currentPhone || '—'}</Text>
+              <TextInput
+                style={s.input}
+                placeholder="New phone number"
+                placeholderTextColor={colors.subtext}
+                keyboardType="phone-pad"
+                value={newPhone}
+                onChangeText={setNewPhone}
+              />
+              <TouchableOpacity style={s.loginBtn} onPress={requestChange} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send Verification Code</Text>}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={{ color: colors.subtext, marginBottom: 16 }}>Enter the code sent to {newPhone}</Text>
+              <TextInput
+                style={[s.input, { textAlign: 'center', fontSize: 20, letterSpacing: 8 }]}
+                placeholder="123456"
+                placeholderTextColor={colors.subtext}
+                keyboardType="number-pad"
+                maxLength={6}
+                value={code}
+                onChangeText={setCode}
+              />
+              <TouchableOpacity style={s.loginBtn} onPress={verifyChange} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify & Update</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setStep('request')} style={{ marginTop: 16, alignItems: 'center' }}>
+                <Text style={{ color: colors.accent, fontWeight: '600' }}>Use a different number</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -1145,44 +1168,46 @@ function ChangeEmailScreen({ token, currentEmail, onBack, onChanged }) {
         <Text style={s.nameText}>Change Email Address</Text>
       </View>
 
-      <View style={s.body}>
-        {step === 'request' ? (
-          <>
-            <Text style={{ color: colors.subtext, marginBottom: 16 }}>Current email: {currentEmail || 'Not set'}</Text>
-            <TextInput
-              style={s.input}
-              placeholder="New email address"
-              placeholderTextColor={colors.subtext}
-              keyboardType="email-address"
-              autoCapitalize="none"
-              value={newEmail}
-              onChangeText={setNewEmail}
-            />
-            <TouchableOpacity style={s.loginBtn} onPress={requestChange} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send Verification Code</Text>}
-            </TouchableOpacity>
-          </>
-        ) : (
-          <>
-            <Text style={{ color: colors.subtext, marginBottom: 16 }}>Enter the code sent to {newEmail}</Text>
-            <TextInput
-              style={[s.input, { textAlign: 'center', fontSize: 20, letterSpacing: 8 }]}
-              placeholder="123456"
-              placeholderTextColor={colors.subtext}
-              keyboardType="number-pad"
-              maxLength={6}
-              value={code}
-              onChangeText={setCode}
-            />
-            <TouchableOpacity style={s.loginBtn} onPress={verifyChange} disabled={loading}>
-              {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify & Update</Text>}
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setStep('request')} style={{ marginTop: 16, alignItems: 'center' }}>
-              <Text style={{ color: colors.accent, fontWeight: '600' }}>Use a different email</Text>
-            </TouchableOpacity>
-          </>
-        )}
-      </View>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView style={s.body} keyboardShouldPersistTaps="handled">
+          {step === 'request' ? (
+            <>
+              <Text style={{ color: colors.subtext, marginBottom: 16 }}>Current email: {currentEmail || 'Not set'}</Text>
+              <TextInput
+                style={s.input}
+                placeholder="New email address"
+                placeholderTextColor={colors.subtext}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                value={newEmail}
+                onChangeText={setNewEmail}
+              />
+              <TouchableOpacity style={s.loginBtn} onPress={requestChange} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Send Verification Code</Text>}
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              <Text style={{ color: colors.subtext, marginBottom: 16 }}>Enter the code sent to {newEmail}</Text>
+              <TextInput
+                style={[s.input, { textAlign: 'center', fontSize: 20, letterSpacing: 8 }]}
+                placeholder="123456"
+                placeholderTextColor={colors.subtext}
+                keyboardType="number-pad"
+                maxLength={6}
+                value={code}
+                onChangeText={setCode}
+              />
+              <TouchableOpacity style={s.loginBtn} onPress={verifyChange} disabled={loading}>
+                {loading ? <ActivityIndicator color="#fff" /> : <Text style={s.loginBtnText}>Verify & Update</Text>}
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => setStep('request')} style={{ marginTop: 16, alignItems: 'center' }}>
+                <Text style={{ color: colors.accent, fontWeight: '600' }}>Use a different email</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -2193,6 +2218,150 @@ function FundWalletModal({ visible, onClose, token, user, onFunded, onUserRefres
 }
 
 // ─── Withdraw Wallet Modal ──────────────────────────────────────────────────
+function TransferModal({ visible, onClose, token, user, wallet, onTransferred }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [identifier, setIdentifier] = useState('');
+  const [recipient, setRecipient] = useState(null);
+  const [lookupError, setLookupError] = useState('');
+  const [looking, setLooking] = useState(false);
+  const [amount, setAmount] = useState('');
+  const [note, setNote] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      setIdentifier('');
+      setRecipient(null);
+      setLookupError('');
+      setAmount('');
+      setNote('');
+    }
+  }, [visible]);
+
+  // Resolve the recipient's name as soon as the sender stops typing a phone/email,
+  // so they see who they're paying before they enter an amount or PIN.
+  useEffect(() => {
+    setRecipient(null);
+    setLookupError('');
+    if (identifier.trim().length < 5) return;
+    const timer = setTimeout(async () => {
+      setLooking(true);
+      try {
+        const data = await api(`/api/v1/wallet/transfer/lookup?identifier=${encodeURIComponent(identifier.trim())}`, { token });
+        setRecipient(data);
+      } catch (e) {
+        setLookupError(e.message || 'User not found');
+      } finally {
+        setLooking(false);
+      }
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [identifier]);
+
+  const amt = Number(amount) || 0;
+  const balance = parseFloat(wallet?.balance || 0);
+
+  const confirmTransfer = () => {
+    if (!recipient) return Alert.alert('Enter recipient', 'Enter the phone number or email of the gora-data user you want to pay');
+    if (!amt || amt < 100) return Alert.alert('Invalid amount', 'Minimum transfer is ₦100');
+    if (amt > balance) return Alert.alert('Insufficient balance', `Your wallet balance is ₦${balance.toLocaleString()}`);
+
+    Alert.alert(
+      'Confirm Transfer',
+      `Send ₦${amt.toLocaleString()} to:\n${recipient.fullName} (${recipient.phone})`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Send', onPress: doTransfer },
+      ]
+    );
+  };
+
+  const doTransfer = async () => {
+    const pin = await requestTransactionPin();
+    if (!pin) return;
+    setSubmitting(true);
+    try {
+      const data = await api('/api/v1/wallet/transfer', {
+        method: 'POST',
+        token,
+        body: { identifier: identifier.trim(), amount: amt, note: note.trim() || undefined, pin },
+      });
+      Alert.alert('Transfer Sent', data?.message || `₦${amt.toLocaleString()} sent`);
+      onTransferred?.();
+      onClose();
+    } catch (e) {
+      Alert.alert('Transfer failed', e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent>
+      <View style={s.modalOverlay}>
+        <View style={s.modalCard}>
+          <View style={s.modalHeader}>
+            <Text style={s.modalTitle}>Send to gora-data User</Text>
+            <TouchableOpacity onPress={onClose}>
+              <Ionicons name="close" size={24} color={colors.text} />
+            </TouchableOpacity>
+          </View>
+
+          <Text style={s.modalHint}>
+            Available balance: ₦{balance.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+          </Text>
+
+          <TextInput
+            style={s.input}
+            placeholder="Recipient phone or email"
+            placeholderTextColor={colors.subtext}
+            value={identifier}
+            onChangeText={setIdentifier}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+
+          {looking && <Text style={s.modalHint}>Looking up...</Text>}
+          {!looking && lookupError ? <Text style={{ color: '#ef4444', fontSize: 12, marginTop: -6, marginBottom: 8 }}>{lookupError}</Text> : null}
+          {!looking && recipient ? (
+            <View style={{ backgroundColor: colors.card, borderRadius: 10, padding: 12, marginBottom: 10 }}>
+              <Text style={{ color: colors.text, fontWeight: '700' }}>{recipient.fullName}</Text>
+              <Text style={{ color: colors.subtext, fontSize: 12, marginTop: 2 }}>{recipient.phone}</Text>
+            </View>
+          ) : null}
+
+          <TextInput
+            style={s.input}
+            placeholder="Amount (₦)"
+            placeholderTextColor={colors.subtext}
+            value={amount}
+            onChangeText={setAmount}
+            keyboardType="numeric"
+          />
+
+          <TextInput
+            style={s.input}
+            placeholder="Note (optional)"
+            placeholderTextColor={colors.subtext}
+            value={note}
+            onChangeText={setNote}
+            maxLength={140}
+          />
+
+          <TouchableOpacity
+            style={[s.fundBtn, { marginTop: 10, opacity: submitting ? 0.6 : 1 }]}
+            onPress={confirmTransfer}
+            disabled={submitting}
+          >
+            {submitting ? <ActivityIndicator color="#fff" /> : <Text style={s.fundBtnText}>Send Money</Text>}
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
 function WithdrawModal({ visible, onClose, token, user, wallet, onWithdrawn }) {
   const { colors } = useTheme();
   const s = makeStyles(colors);
@@ -5977,6 +6146,7 @@ function HomeScreen({ user, token, onOpenService, unreadCount, onUserRefresh }) 
   const [refreshing, setRefreshing] = useState(false);
   const [fundModalVisible, setFundModalVisible] = useState(false);
   const [withdrawModalVisible, setWithdrawModalVisible] = useState(false);
+  const [transferModalVisible, setTransferModalVisible] = useState(false);
   const [recentTxns, setRecentTxns] = useState([]);
   const [txnsLoading, setTxnsLoading] = useState(true);
   const [virtualAccount, setVirtualAccount] = useState(null);
@@ -6132,6 +6302,9 @@ function HomeScreen({ user, token, onOpenService, unreadCount, onUserRefresh }) 
             <TouchableOpacity style={[s.fundBtn, { marginLeft: 10, backgroundColor: 'rgba(255,255,255,0.14)' }]} onPress={() => setWithdrawModalVisible(true)}>
               <Text style={s.fundBtnText}>Withdraw</Text>
             </TouchableOpacity>
+            <TouchableOpacity style={[s.fundBtn, { marginLeft: 10, backgroundColor: 'rgba(255,255,255,0.14)' }]} onPress={() => setTransferModalVisible(true)}>
+              <Text style={s.fundBtnText}>Send</Text>
+            </TouchableOpacity>
           </View>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginTop: 8 }}>
             <TouchableOpacity onPress={() => onOpenService('transactions')}>
@@ -6269,6 +6442,7 @@ function HomeScreen({ user, token, onOpenService, unreadCount, onUserRefresh }) 
 
       <FundWalletModal visible={fundModalVisible} onClose={() => setFundModalVisible(false)} token={token} user={user} onFunded={() => { loadWallet(); loadVirtualAccount(); }} onUserRefresh={onUserRefresh} />
       <WithdrawModal visible={withdrawModalVisible} onClose={() => setWithdrawModalVisible(false)} token={token} user={user} wallet={wallet} onWithdrawn={loadWallet} />
+      <TransferModal visible={transferModalVisible} onClose={() => setTransferModalVisible(false)} token={token} user={user} wallet={wallet} onTransferred={loadWallet} />
     </SafeAreaView>
   );
 }
@@ -6411,6 +6585,20 @@ function AdminProviderRoutingScreen({ token, onBack }) {
     setSaving(false);
   };
 
+  // Deletes a route using its OWN saved network/service values directly, instead of
+  // relying on the currently-selected pills above. This matters because some existing
+  // overrides were saved with a specific network (e.g. 'MTN') for a service that is
+  // now classified as network-less (isNetworkLess), so the pill-based lookup above can
+  // never match them — this lets any row in "Active Overrides" be cleared regardless.
+  const clearSpecificRoute = async (routeNetwork, routeService) => {
+    setSaving(true);
+    try {
+      await api(`/api/v1/admin/provider-routes/${routeNetwork}/${routeService}`, { method: 'DELETE', token });
+      await load();
+    } catch (e) { Alert.alert('Failed', e.message); }
+    setSaving(false);
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <AdminToolHeader title="Provider Routing" subtitle="Send specific network + service combos to a chosen provider" onBack={onBack} colors={colors} />
@@ -6472,7 +6660,12 @@ function AdminProviderRoutingScreen({ token, onBack }) {
         {routes.map((r, i) => (
           <View key={i} style={[adminCardStyle(colors), { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }]}>
             <Text style={{ color: colors.text, fontWeight: '600', fontSize: 13 }}>{r.network === 'ALL' ? '' : `${r.network} · `}{r.service.replace('_', ' ')}</Text>
-            <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 12.5 }}>{r.provider}</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 12.5, marginRight: 14 }}>{r.provider}</Text>
+              <TouchableOpacity disabled={saving} onPress={() => clearSpecificRoute(r.network, r.service)}>
+                <Ionicons name="trash-outline" size={18} color="#b91c1c" />
+              </TouchableOpacity>
+            </View>
           </View>
         ))}
       </ScrollView>
@@ -6787,6 +6980,32 @@ function AdminUsersScreen({ token, onBack }) {
     );
   };
 
+  const deleteUser = async (u) => {
+    if (u.wallets?.balance && Number(u.wallets.balance) > 0) {
+      return Alert.alert('Cannot delete', `${u.full_name || u.phone} still has a wallet balance of ₦${Number(u.wallets.balance).toLocaleString()}. The balance must be zero before deletion.`);
+    }
+    Alert.alert(
+      'Delete this user?',
+      `${u.full_name || u.phone} will be permanently removed. Their name, phone, email, BVN/NIN and login PIN are erased and they can no longer log in. This cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setBusyId(u.id);
+            try {
+              await api(`/api/v1/admin/users/${u.id}/delete`, { method: 'POST', token });
+              Alert.alert('Deleted', 'User account has been deleted.');
+              setResults((prev) => prev.filter((r) => r.id !== u.id));
+            } catch (e) { Alert.alert('Failed', e.message); }
+            setBusyId(null);
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
       <AdminToolHeader title="User Management" subtitle="Search, freeze/block, and set pricing tier" onBack={onBack} colors={colors} />
@@ -6855,6 +7074,10 @@ function AdminUsersScreen({ token, onBack }) {
             <TouchableOpacity disabled={busyId === u.id} onPress={() => resetPassword(u)} style={{ marginTop: 8, backgroundColor: colors.iconWrap, borderRadius: 10, paddingVertical: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
               <Ionicons name="lock-closed-outline" size={15} color={colors.accent} style={{ marginRight: 6 }} />
               <Text style={{ color: colors.accent, fontWeight: '700', fontSize: 12.5 }}>Reset Login Password</Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={busyId === u.id} onPress={() => deleteUser(u)} style={{ marginTop: 8, backgroundColor: '#fee2e2', borderRadius: 10, paddingVertical: 10, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' }}>
+              <Ionicons name="trash-outline" size={15} color="#b91c1c" style={{ marginRight: 6 }} />
+              <Text style={{ color: '#b91c1c', fontWeight: '700', fontSize: 12.5 }}>Delete User</Text>
             </TouchableOpacity>
             {busyId === u.id && <ActivityIndicator color={colors.accent} style={{ marginTop: 8 }} />}
           </View>
@@ -7147,6 +7370,74 @@ function AdminFailoverLogScreen({ token, onBack }) {
             <Text style={{ color: '#d97706', fontSize: 12.5, marginTop: 4, fontWeight: '600' }}>{e.from_provider} → {e.to_provider}</Text>
             <Text style={{ color: colors.subtext, fontSize: 12, marginTop: 4 }}>{e.reason}</Text>
             {e.reference && <Text style={{ color: colors.subtext, fontSize: 11, marginTop: 4 }}>Ref: {e.reference}</Text>}
+          </View>
+        ))}
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// ─── Admin: Audit Log (WHO did WHAT to WHOM, and WHEN) ─────────────────────────
+function AdminAuditLogScreen({ token, onBack }) {
+  const { colors } = useTheme();
+  const [entries, setEntries] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [targetType, setTargetType] = useState('all');
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      let path = '/api/v1/admin/audit-log?limit=100';
+      if (targetType !== 'all') path += `&targetType=${targetType}`;
+      const data = await api(path, { token });
+      setEntries(data);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token, targetType]);
+
+  useEffect(() => { load(); }, [load]);
+
+  // Turns 'freeze_user' into 'Freeze user' for display — the backend logs a short
+  // machine-friendly action string, this just makes it readable without a lookup table.
+  const formatAction = (action) => {
+    const s = String(action || '').replace(/_/g, ' ');
+    return s.charAt(0).toUpperCase() + s.slice(1);
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AdminToolHeader title="Audit Log" subtitle="Every admin action — who did it, to what, and when" onBack={onBack} colors={colors} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, marginTop: 16 }}>
+        {['all', 'user', 'transaction', 'service_control', 'tier_pricing', 'provider_route'].map((f) => (
+          <TouchableOpacity key={f} style={adminPillStyle(colors, targetType === f)} onPress={() => setTargetType(f)}>
+            <Text style={{ color: targetType === f ? '#fff' : colors.text, fontWeight: '600', fontSize: 12, textTransform: 'capitalize' }}>{f.replace(/_/g, ' ')}</Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView style={{ flex: 1, paddingHorizontal: 20, marginTop: 8 }} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} colors={[colors.accent]} />}>
+        {loading && <ActivityIndicator color={colors.accent} />}
+        {!loading && entries.length === 0 && <Text style={{ color: colors.subtext }}>No admin actions recorded yet.</Text>}
+        {entries.map((e) => (
+          <View key={e.id} style={adminCardStyle(colors)}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5 }}>{formatAction(e.action)}</Text>
+              <Text style={{ color: colors.subtext, fontSize: 11 }}>{new Date(e.created_at).toLocaleString()}</Text>
+            </View>
+            <Text style={{ color: colors.accent, fontSize: 12.5, marginTop: 4, fontWeight: '600' }}>
+              {e.admin?.full_name || 'Unknown admin'}{e.admin?.phone ? ` (${e.admin.phone})` : ''}
+            </Text>
+            {e.target_type && (
+              <Text style={{ color: colors.subtext, fontSize: 12, marginTop: 4 }}>
+                Target: {e.target_type}{e.target_id ? ` · ${e.target_id}` : ''}
+              </Text>
+            )}
+            {e.details && Object.keys(e.details).length > 0 && (
+              <Text style={{ color: colors.subtext, fontSize: 11, marginTop: 4 }} numberOfLines={3}>
+                {Object.entries(e.details).filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => `${k}: ${typeof v === 'object' ? JSON.stringify(v) : v}`).join('  ·  ')}
+              </Text>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -8172,6 +8463,52 @@ function AdminCommissionScreen({ token, onBack }) {
   );
 }
 
+// ─── Admin: Today's Transactions (list view for the Overview "Txns Today" card) ─
+function AdminTodayTransactionsScreen({ token, onBack }) {
+  const { colors } = useTheme();
+  const [txns, setTxns] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const data = await api('/api/v1/admin/transactions/today', { token });
+      setTxns(data.transactions || []);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const naira = (n) => `₦${Number(n || 0).toLocaleString()}`;
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AdminToolHeader title="Today's Transactions" subtitle={`${txns.length} transaction${txns.length === 1 ? '' : 's'} so far today`} onBack={onBack} colors={colors} />
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView style={{ flex: 1, paddingHorizontal: 20, marginTop: 16 }} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} colors={[colors.accent]} />}>
+        {loading && <ActivityIndicator color={colors.accent} />}
+        {!loading && txns.length === 0 && <Text style={{ color: colors.subtext }}>No transactions yet today.</Text>}
+        {txns.map((t, i) => (
+          <View key={t.id || i} style={adminCardStyle(colors)}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5 }}>
+                {t.users?.full_name || t.users?.phone || 'Unknown user'}
+              </Text>
+              <Text style={{ color: colors.subtext, fontSize: 11 }}>{new Date(t.created_at).toLocaleTimeString()}</Text>
+            </View>
+            <Text style={{ color: colors.subtext, fontSize: 12.5, marginTop: 4 }}>
+              {t.category} · {t.type} · {t.status}
+            </Text>
+            <Text style={{ color: colors.accent, fontSize: 14, marginTop: 4, fontWeight: '700' }}>{naira(t.amount)}</Text>
+            {t.reference && <Text style={{ color: colors.subtext, fontSize: 11, marginTop: 4 }}>Ref: {t.reference}</Text>}
+          </View>
+        ))}
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
 // ─── Admin Screen (router: hub + tool sub-screens) ─────────────────────────────
 function AdminScreen({ token }) {
   const [tool, setTool] = useState(null);
@@ -8183,11 +8520,13 @@ function AdminScreen({ token }) {
   if (tool === 'users') return <AdminUsersScreen token={token} onBack={back} />;
   if (tool === 'pricing') return <AdminPricingScreen token={token} onBack={back} />;
   if (tool === 'failoverLog') return <AdminFailoverLogScreen token={token} onBack={back} />;
+  if (tool === 'auditLog') return <AdminAuditLogScreen token={token} onBack={back} />;
   if (tool === 'providerLogs') return <AdminProviderLogsScreen token={token} onBack={back} />;
   if (tool === 'reconciler') return <AdminGatewayReconcilerScreen token={token} onBack={back} />;
   if (tool === 'pendingPurchases') return <AdminPendingPurchasesScreen token={token} onBack={back} />;
   if (tool === 'withdrawals') return <AdminWithdrawalsScreen token={token} onBack={back} />;
   if (tool === 'trace') return <AdminTransactionTraceScreen token={token} onBack={back} />;
+  if (tool === 'todayTxns') return <AdminTodayTransactionsScreen token={token} onBack={back} />;
   if (tool === 'commission') return <AdminCommissionScreen token={token} onBack={back} />;
   if (tool === 'accountDeletions') return <AdminAccountDeletionsScreen token={token} onBack={back} />;
   if (tool === 'announcements') return <AdminAnnouncementsScreen token={token} onBack={back} />;
@@ -8334,6 +8673,7 @@ function AdminOverview({ token, onOpenTool }) {
           { key: 'users', icon: 'people-outline', label: 'User Management', hint: 'Search, freeze/block, set tier' },
           { key: 'pricing', icon: 'pricetag-outline', label: 'Pricing & Margins', hint: 'Global and per-tier markups' },
           { key: 'failoverLog', icon: 'swap-horizontal-outline', label: 'Failover Log', hint: 'Automatic provider switch history' },
+          { key: 'auditLog', icon: 'shield-checkmark-outline', label: 'Audit Log', hint: 'Every admin action — who, what, when' },
           { key: 'providerLogs', icon: 'document-text-outline', label: 'Provider API Logs', hint: 'Raw request/response payloads' },
           { key: 'reconciler', icon: 'git-compare-outline', label: 'Gateway Reconciler', hint: 'Match webhooks to wallets' },
           { key: 'pendingPurchases', icon: 'alert-circle-outline', label: 'Pending Purchases', hint: 'Ambiguous provider failures — confirm or refund' },
@@ -8361,18 +8701,18 @@ function AdminOverview({ token, onOpenTool }) {
 
         <Text style={[s.sectionTitle, { marginTop: 24 }]}>Overview</Text>
         <View style={s.overviewRow}>
-          <View style={s.overviewCard}>
+          <TouchableOpacity style={s.overviewCard} onPress={() => onOpenTool('users')}>
             <Text style={s.overviewLabel}>Wallet Balances</Text>
             <Text style={s.overviewValue}>{naira(overview.totalWalletBalance)}</Text>
-          </View>
-          <View style={s.overviewCard}>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.overviewCard} onPress={() => onOpenTool('users')}>
             <Text style={s.overviewLabel}>Users</Text>
             <Text style={s.overviewValue}>{overview.totalUsers}</Text>
-          </View>
-          <View style={s.overviewCard}>
+          </TouchableOpacity>
+          <TouchableOpacity style={s.overviewCard} onPress={() => onOpenTool('todayTxns')}>
             <Text style={s.overviewLabel}>Txns Today</Text>
             <Text style={s.overviewValue}>{overview.transactionsToday}</Text>
-          </View>
+          </TouchableOpacity>
         </View>
 
         <Text style={[s.sectionTitle, { marginTop: 24 }]}>Airtime Per Network</Text>
@@ -8947,12 +9287,56 @@ function AppInner() {
   );
 }
 
+// ─── Error boundary ─────────────────────────────────────────────────────────
+// React error boundaries can only be class components — hooks can't catch
+// render errors. Without this, any screen that throws during render white-
+// screens the whole app instead of showing just that screen failed. Reports
+// the crash to Sentry (if configured above) and shows a recoverable screen
+// instead of a blank one.
+class AppErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, errorInfo) {
+    Sentry.captureException(error, { extra: { componentStack: errorInfo?.componentStack } });
+  }
+  handleReset = () => {
+    this.setState({ hasError: false });
+  };
+  render() {
+    if (this.state.hasError) {
+      return (
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 24 }}>
+          <Ionicons name="alert-circle-outline" size={48} color="#dc2626" />
+          <Text style={{ fontSize: 17, fontWeight: '700', marginTop: 16, textAlign: 'center' }}>Something went wrong</Text>
+          <Text style={{ fontSize: 13, color: '#6b7280', marginTop: 8, textAlign: 'center' }}>
+            This screen ran into a problem. It's been reported automatically.
+          </Text>
+          <TouchableOpacity
+            onPress={this.handleReset}
+            style={{ backgroundColor: '#4f46e5', paddingHorizontal: 24, paddingVertical: 12, borderRadius: 10, marginTop: 20 }}
+          >
+            <Text style={{ color: '#fff', fontWeight: '600' }}>Try Again</Text>
+          </TouchableOpacity>
+        </SafeAreaView>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 export default function App() {
   return (
-    <ThemeProvider>
-      <AppInner />
-      <TransactionPinModalHost />
-    </ThemeProvider>
+    <AppErrorBoundary>
+      <ThemeProvider>
+        <AppInner />
+        <TransactionPinModalHost />
+      </ThemeProvider>
+    </AppErrorBoundary>
   );
 }
 
