@@ -1175,6 +1175,69 @@ app.post('/api/v1/admin/announcements/:id/deactivate', auth, requireAdmin, async
 app.get('/health', (req, res) => res.json({ status: 'ok', message: 'Gora Data VTU API is running!', timestamp: new Date().toISOString() }));
 app.get('/', (req, res) => res.json({ status: 'ok', name: 'Gora Data API', version: '1.0.0' }));
 
+// ─── FORCE UPDATE / VERSION CHECK ──────────────────────────────────────────────
+// Without this, pushing a backend change that the old app code can't handle (a
+// renamed field, a new required param) breaks every user still on the old build,
+// with no way to tell them — this is the gap: users on an old build just silently
+// fail with no idea why, until they happen to update manually.
+//
+// Simple three-part semver compare — good enough for 'x.y.z' version strings,
+// no need to pull in a whole semver package for this.
+function compareVersions(a, b) {
+  const pa = String(a).split('.').map(Number);
+  const pb = String(b).split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    const diff = (pa[i] || 0) - (pb[i] || 0);
+    if (diff !== 0) return diff > 0 ? 1 : -1;
+  }
+  return 0;
+}
+
+const DEFAULT_VERSION_SETTINGS = {
+  minVersion: '1.0.0',
+  latestVersion: '1.0.0',
+  updateUrl: 'https://play.google.com/store/apps/details?id=com.goradata.app',
+  message: 'A new version of Gora Data is available. Please update to continue.',
+};
+
+async function getVersionSettings() {
+  const stored = await kvGet('app_version_settings');
+  return { ...DEFAULT_VERSION_SETTINGS, ...(stored || {}) };
+}
+
+// Public — called before login even, so a user on a broken old build finds out
+// immediately rather than after a confusing failed login/purchase.
+app.get('/api/v1/app/version-check', async (req, res) => {
+  try {
+    const { version } = req.query;
+    const settings = await getVersionSettings();
+    if (!version) return ok(res, { ...settings, forceUpdate: false, updateAvailable: false });
+    const forceUpdate = compareVersions(version, settings.minVersion) < 0;
+    const updateAvailable = compareVersions(version, settings.latestVersion) < 0;
+    ok(res, { ...settings, forceUpdate, updateAvailable });
+  } catch (e) { err(res, e.message); }
+});
+
+app.get('/api/v1/admin/app-version', auth, requireAdmin, async (req, res) => {
+  try { ok(res, await getVersionSettings()); } catch (e) { err(res, e.message); }
+});
+
+app.put('/api/v1/admin/app-version', auth, requireAdmin, async (req, res) => {
+  try {
+    const { minVersion, latestVersion, updateUrl, message } = req.body;
+    const current = await getVersionSettings();
+    const next = {
+      minVersion: minVersion || current.minVersion,
+      latestVersion: latestVersion || current.latestVersion,
+      updateUrl: updateUrl || current.updateUrl,
+      message: message || current.message,
+    };
+    await kvSet('app_version_settings', next);
+    logAdminAction(req.user.id, 'update_app_version_settings', 'settings', 'app_version', next);
+    ok(res, next, 'App version settings updated');
+  } catch (e) { err(res, e.message); }
+});
+
 // ─── AUTH ROUTES ──────────────────────────────────────────────────────────────
 app.post('/api/v1/auth/register', sensitiveLimiter, async (req, res) => {
   try {
