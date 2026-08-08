@@ -30,6 +30,16 @@
       "eas": {
         "projectId": "33e9346d-a3e9-412f-8103-762f3b11c652"
       }
-    }
+    },
+    "plugins": [
+      [
+        "@sentry/react-native/expo",
+        {
+          "url": "https://sentry.io/",
+          "organization": "gora-data",
+          "project": "gora-data-mobile"
+        }
+      ]
+    ]
   }
 }
