@@ -7378,6 +7378,109 @@ function AdminFailoverLogScreen({ token, onBack }) {
   );
 }
 
+// ─── Admin: App Version / Force Update settings ─────────────────────────────
+function AdminAppVersionScreen({ token, onBack }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [settings, setSettings] = useState({ minVersion: '', latestVersion: '', updateUrl: '', message: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api('/api/v1/admin/app-version', { token });
+      setSettings(data);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!settings.minVersion || !settings.latestVersion) return Alert.alert('Missing fields', 'Minimum and latest version are both required');
+    setSaving(true);
+    try {
+      const data = await api('/api/v1/admin/app-version', { method: 'PUT', token, body: settings });
+      setSettings(data);
+      Alert.alert('Saved', 'App version settings updated');
+    } catch (e) { Alert.alert('Failed', e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AdminToolHeader title="App Version" subtitle="Force old builds to update before they can use the app" onBack={onBack} colors={colors} />
+      {loading ? (
+        <ActivityIndicator color={colors.accent} style={{ marginTop: 30 }} />
+      ) : (
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView style={{ flex: 1, paddingHorizontal: 20, marginTop: 16 }} contentContainerStyle={{ paddingBottom: 40 }}>
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Minimum version</Text>
+            <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 8 }}>
+              Anyone below this is blocked with an "Update Required" screen until they update.
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="e.g. 1.0.0"
+              placeholderTextColor={colors.subtext}
+              value={settings.minVersion}
+              onChangeText={(v) => setSettings((p) => ({ ...p, minVersion: v }))}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Latest version</Text>
+            <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 8 }}>
+              Used only to show a "new version available" indicator — doesn't block anyone.
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="e.g. 1.2.0"
+              placeholderTextColor={colors.subtext}
+              value={settings.latestVersion}
+              onChangeText={(v) => setSettings((p) => ({ ...p, latestVersion: v }))}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Update link</Text>
+            <TextInput
+              style={s.input}
+              placeholder="Play Store URL"
+              placeholderTextColor={colors.subtext}
+              value={settings.updateUrl}
+              onChangeText={(v) => setSettings((p) => ({ ...p, updateUrl: v }))}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+          </View>
+
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Message shown to blocked users</Text>
+            <TextInput
+              style={[s.input, { height: 80, textAlignVertical: 'top' }]}
+              placeholder="A new version of Gora Data is available..."
+              placeholderTextColor={colors.subtext}
+              value={settings.message}
+              onChangeText={(v) => setSettings((p) => ({ ...p, message: v }))}
+              multiline
+            />
+          </View>
+
+          <TouchableOpacity style={[s.fundBtn, { marginTop: 6, opacity: saving ? 0.6 : 1 }]} onPress={save} disabled={saving}>
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.fundBtnText}>Save</Text>}
+          </TouchableOpacity>
+        </ScrollView>
+        </KeyboardAvoidingView>
+      )}
+    </SafeAreaView>
+  );
+}
+
 // ─── Admin: Audit Log (WHO did WHAT to WHOM, and WHEN) ─────────────────────────
 function AdminAuditLogScreen({ token, onBack }) {
   const { colors } = useTheme();
@@ -8521,6 +8624,7 @@ function AdminScreen({ token }) {
   if (tool === 'pricing') return <AdminPricingScreen token={token} onBack={back} />;
   if (tool === 'failoverLog') return <AdminFailoverLogScreen token={token} onBack={back} />;
   if (tool === 'auditLog') return <AdminAuditLogScreen token={token} onBack={back} />;
+  if (tool === 'appVersion') return <AdminAppVersionScreen token={token} onBack={back} />;
   if (tool === 'providerLogs') return <AdminProviderLogsScreen token={token} onBack={back} />;
   if (tool === 'reconciler') return <AdminGatewayReconcilerScreen token={token} onBack={back} />;
   if (tool === 'pendingPurchases') return <AdminPendingPurchasesScreen token={token} onBack={back} />;
@@ -8674,6 +8778,7 @@ function AdminOverview({ token, onOpenTool }) {
           { key: 'pricing', icon: 'pricetag-outline', label: 'Pricing & Margins', hint: 'Global and per-tier markups' },
           { key: 'failoverLog', icon: 'swap-horizontal-outline', label: 'Failover Log', hint: 'Automatic provider switch history' },
           { key: 'auditLog', icon: 'shield-checkmark-outline', label: 'Audit Log', hint: 'Every admin action — who, what, when' },
+          { key: 'appVersion', icon: 'phone-portrait-outline', label: 'App Version', hint: 'Force old builds to update' },
           { key: 'providerLogs', icon: 'document-text-outline', label: 'Provider API Logs', hint: 'Raw request/response payloads' },
           { key: 'reconciler', icon: 'git-compare-outline', label: 'Gateway Reconciler', hint: 'Match webhooks to wallets' },
           { key: 'pendingPurchases', icon: 'alert-circle-outline', label: 'Pending Purchases', hint: 'Ambiguous provider failures — confirm or refund' },
@@ -9329,13 +9434,72 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+// ─── Force update gate ──────────────────────────────────────────────────────
+// Checked before anything else renders. If the backend says this build is too
+// old (admin sets the cutoff via /api/v1/admin/app-version), the app never
+// gets past this screen — no login, no cached data shown, nothing — because a
+// build old enough to be blocked may not handle current API responses
+// correctly at all. Fails open (renders the app normally) on any network
+// error, so a flaky connection or the version-check endpoint itself being
+// briefly down never locks a user out of an app that's actually fine.
+function ForceUpdateGate({ children }) {
+  const [checking, setChecking] = useState(true);
+  const [blockInfo, setBlockInfo] = useState(null); // { message, updateUrl } or null
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const currentVersion = Constants.expoConfig?.version || '0.0.0';
+        const data = await api(`/api/v1/app/version-check?version=${encodeURIComponent(currentVersion)}`, {});
+        if (data?.forceUpdate) {
+          setBlockInfo({ message: data.message, updateUrl: data.updateUrl });
+        }
+      } catch (e) {
+        // Fail open — see comment above.
+      } finally {
+        setChecking(false);
+      }
+    })();
+  }, []);
+
+  if (checking) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color="#4f46e5" />
+      </SafeAreaView>
+    );
+  }
+
+  if (blockInfo) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 28 }}>
+        <Ionicons name="cloud-download-outline" size={56} color="#4f46e5" />
+        <Text style={{ fontSize: 19, fontWeight: '700', marginTop: 18, textAlign: 'center' }}>Update Required</Text>
+        <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 10, textAlign: 'center', lineHeight: 20 }}>
+          {blockInfo.message}
+        </Text>
+        <TouchableOpacity
+          onPress={() => Linking.openURL(blockInfo.updateUrl)}
+          style={{ backgroundColor: '#4f46e5', paddingHorizontal: 28, paddingVertical: 13, borderRadius: 10, marginTop: 24 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15 }}>Update Now</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  return children;
+}
+
 export default function App() {
   return (
     <AppErrorBoundary>
-      <ThemeProvider>
-        <AppInner />
-        <TransactionPinModalHost />
-      </ThemeProvider>
+      <ForceUpdateGate>
+        <ThemeProvider>
+          <AppInner />
+          <TransactionPinModalHost />
+        </ThemeProvider>
+      </ForceUpdateGate>
     </AppErrorBoundary>
   );
 }
