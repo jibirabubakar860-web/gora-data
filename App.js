@@ -15,6 +15,7 @@ import Constants from 'expo-constants';
 import * as LocalAuthentication from 'expo-local-authentication';
 import * as SecureStore from 'expo-secure-store';
 import * as Sentry from '@sentry/react-native';
+import NetInfo from '@react-native-community/netinfo';
 
 // ─── Crash reporting ────────────────────────────────────────────────────────
 // Must run before anything else in the app so it can catch errors from the
@@ -232,14 +233,27 @@ async function api(path, { method = 'GET', body, token, _retried } = {}) {
   // this way a background refresh is picked up immediately by every screen
   // without needing to thread updated tokens through props everywhere.
   const authToken = currentAccessToken || token;
-  const res = await fetch(`${API_BASE}${path}`, {
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-    },
-    body: body ? JSON.stringify(body) : undefined,
-  });
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch (networkErr) {
+    // fetch itself throwing (not just a non-2xx response) means the request
+    // never reached the server at all — dropped connection, DNS failure,
+    // airplane mode. Without this catch, the raw "Network request failed" /
+    // "Failed to fetch" message surfaces straight into an Alert, which reads
+    // like a crash rather than a connectivity problem the user can act on —
+    // exactly the "app just hangs with a confusing error" gap this closes.
+    const offlineError = new Error('No internet connection. Please check your connection and try again.');
+    offlineError.isNetworkError = true;
+    throw offlineError;
+  }
   const json = await res.json();
   if (json.status !== 'success') {
     const isAuthError = res.status === 401 && !!authToken;
@@ -1334,9 +1348,10 @@ function toWhatsAppNumber(raw) {
   return digits;
 }
 
-function SupportScreen({ onBack }) {
+function SupportScreen({ token, onBack }) {
   const { colors } = useTheme();
   const s = makeStyles(colors);
+  const [view, setView] = useState('main'); // 'main' | 'tickets' | 'new' | ticket id string
 
   const openWhatsApp = () => {
     const number = toWhatsAppNumber(SUPPORT_WHATSAPP_RAW);
@@ -1349,7 +1364,12 @@ function SupportScreen({ onBack }) {
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('Gora Data Support')}`).catch(() => Alert.alert('Could not open mail app', SUPPORT_EMAIL));
   };
 
+  if (view === 'tickets') return <SupportTicketsListScreen token={token} onBack={() => setView('main')} onNewTicket={() => setView('new')} onOpenTicket={(id) => setView(id)} />;
+  if (view === 'new') return <NewTicketScreen token={token} onBack={() => setView('tickets')} onCreated={(id) => setView(id)} />;
+  if (view !== 'main') return <TicketDetailScreen token={token} ticketId={view} onBack={() => setView('tickets')} />;
+
   const options = [
+    { key: 'tickets', icon: 'document-text-outline', label: 'My Tickets', sub: 'Track a complaint or question', onPress: () => setView('tickets'), color: colors.accent },
     { key: 'whatsapp', icon: 'logo-whatsapp', label: 'Chat on WhatsApp', sub: `+${toWhatsAppNumber(SUPPORT_WHATSAPP_RAW)}`, onPress: openWhatsApp, color: '#25D366' },
     { key: 'call', icon: 'call-outline', label: 'Call Support', sub: SUPPORT_CALL_NUMBER, onPress: openCall, color: colors.accent },
     { key: 'email', icon: 'mail-outline', label: 'Email Support', sub: SUPPORT_EMAIL, onPress: openEmail, color: colors.accent },
@@ -1386,6 +1406,269 @@ function SupportScreen({ onBack }) {
     </SafeAreaView>
   );
 }
+
+// ─── Support Tickets: list ──────────────────────────────────────────────────
+const TICKET_STATUS_COLORS = { open: '#f59e0b', in_progress: '#3b82f6', resolved: '#16a34a', closed: '#6b7280' };
+const TICKET_STATUS_LABELS = { open: 'Open', in_progress: 'In Progress', resolved: 'Resolved', closed: 'Closed' };
+
+function SupportTicketsListScreen({ token, onBack, onNewTicket, onOpenTicket }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api('/api/v1/support/tickets', { token });
+      setTickets(Array.isArray(data) ? data : []);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  return (
+    <SafeAreaView style={s.safeArea}>
+      <View style={[s.header, { paddingBottom: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <TouchableOpacity onPress={onBack} style={{ marginRight: 12 }}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={s.nameText}>My Tickets</Text>
+        </View>
+        <TouchableOpacity onPress={onNewTicket}>
+          <Ionicons name="add-circle" size={30} color="#fff" />
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={s.body} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} colors={[colors.accent]} />}>
+        {loading && <ActivityIndicator color={colors.accent} style={{ marginTop: 20 }} />}
+        {!loading && tickets.length === 0 && (
+          <View style={{ alignItems: 'center', marginTop: 40 }}>
+            <Ionicons name="document-text-outline" size={40} color={colors.subtext} />
+            <Text style={{ color: colors.subtext, marginTop: 12, textAlign: 'center' }}>No tickets yet.{'\n'}Tap + to report an issue.</Text>
+          </View>
+        )}
+        {tickets.map((t) => (
+          <TouchableOpacity key={t.id} style={s.notifCard} onPress={() => onOpenTicket(t.id)}>
+            <View style={{ flex: 1 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: TICKET_STATUS_COLORS[t.status] || colors.subtext, marginRight: 6 }} />
+                <Text style={{ color: TICKET_STATUS_COLORS[t.status] || colors.subtext, fontSize: 11, fontWeight: '700' }}>
+                  {TICKET_STATUS_LABELS[t.status] || t.status}
+                </Text>
+              </View>
+              <Text style={s.notifTitle}>{t.subject}</Text>
+              {t.lastMessage ? (
+                <Text style={s.notifTime} numberOfLines={1}>{t.lastMessage.sender === 'admin' ? 'Support: ' : 'You: '}{t.lastMessage.text}</Text>
+              ) : null}
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.subtext} />
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// ─── Support Tickets: create ────────────────────────────────────────────────
+function NewTicketScreen({ token, onBack, onCreated }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [subject, setSubject] = useState('');
+  const [category, setCategory] = useState('other');
+  const [message, setMessage] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const categories = [
+    { key: 'wallet', label: 'Wallet' },
+    { key: 'transaction', label: 'Transaction' },
+    { key: 'account', label: 'Account' },
+    { key: 'kyc', label: 'KYC / Verification' },
+    { key: 'other', label: 'Other' },
+  ];
+
+  const submit = async () => {
+    if (!subject.trim() || !message.trim()) return Alert.alert('Missing info', 'Please fill in a subject and a description');
+    setSubmitting(true);
+    try {
+      const data = await api('/api/v1/support/tickets', { method: 'POST', token, body: { subject: subject.trim(), message: message.trim(), category } });
+      onCreated(data.id);
+    } catch (e) { Alert.alert('Failed', e.message); }
+    setSubmitting(false);
+  };
+
+  return (
+    <SafeAreaView style={s.safeArea}>
+      <View style={[s.header, { paddingBottom: 20 }]}>
+        <TouchableOpacity onPress={onBack} style={{ marginBottom: 10 }}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={s.nameText}>Report an Issue</Text>
+      </View>
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      <ScrollView style={s.body} contentContainerStyle={{ paddingBottom: 40 }} keyboardShouldPersistTaps="handled">
+        <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 8 }}>Category</Text>
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', marginBottom: 16 }}>
+          {categories.map((c) => (
+            <TouchableOpacity key={c.key} style={adminPillStyle(colors, category === c.key)} onPress={() => setCategory(c.key)}>
+              <Text style={{ color: category === c.key ? '#fff' : colors.text, fontWeight: '600', fontSize: 12 }}>{c.label}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 8 }}>Subject</Text>
+        <TextInput
+          style={[s.input, { marginBottom: 16 }]}
+          placeholder="Brief summary of the issue"
+          placeholderTextColor={colors.subtext}
+          value={subject}
+          onChangeText={setSubject}
+          maxLength={140}
+        />
+
+        <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 8 }}>Describe the issue</Text>
+        <TextInput
+          style={[s.input, { height: 120, textAlignVertical: 'top', marginBottom: 20 }]}
+          placeholder="Tell us what happened, including any transaction reference if relevant"
+          placeholderTextColor={colors.subtext}
+          value={message}
+          onChangeText={setMessage}
+          multiline
+        />
+
+        <TouchableOpacity style={[s.fundBtn, { opacity: submitting ? 0.6 : 1 }]} onPress={submit} disabled={submitting}>
+          {submitting ? <ActivityIndicator color="#fff" /> : <Text style={s.fundBtnText}>Submit Ticket</Text>}
+        </TouchableOpacity>
+      </ScrollView>
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+
+// ─── Support Tickets: thread detail (used by both user and admin views) ────
+function TicketDetailScreen({ token, ticketId, onBack, isAdmin }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [ticket, setTicket] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [reply, setReply] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const basePath = isAdmin ? `/api/v1/admin/support/tickets/${ticketId}` : `/api/v1/support/tickets/${ticketId}`;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api(basePath, { token });
+      setTicket(data);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token, basePath]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const send = async () => {
+    if (!reply.trim()) return;
+    setSending(true);
+    try {
+      const data = await api(`${basePath}/reply`, { method: 'POST', token, body: { message: reply.trim() } });
+      setTicket(data);
+      setReply('');
+    } catch (e) { Alert.alert('Failed', e.message); }
+    setSending(false);
+  };
+
+  const setStatus = async (status) => {
+    setSending(true);
+    try {
+      const data = await api(`${basePath}/reply`, { method: 'POST', token, body: { status } });
+      setTicket(data);
+    } catch (e) { Alert.alert('Failed', e.message); }
+    setSending(false);
+  };
+
+  if (loading || !ticket) {
+    return (
+      <SafeAreaView style={s.safeArea}>
+        <View style={[s.header, { paddingBottom: 20 }]}>
+          <TouchableOpacity onPress={onBack} style={{ marginBottom: 10 }}>
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={s.nameText}>Ticket</Text>
+        </View>
+        <ActivityIndicator color={colors.accent} style={{ marginTop: 30 }} />
+      </SafeAreaView>
+    );
+  }
+
+  const closed = ticket.status === 'closed';
+
+  return (
+    <SafeAreaView style={s.safeArea}>
+      <View style={[s.header, { paddingBottom: 16 }]}>
+        <TouchableOpacity onPress={onBack} style={{ marginBottom: 10 }}>
+          <Ionicons name="arrow-back" size={24} color="#fff" />
+        </TouchableOpacity>
+        <Text style={s.nameText} numberOfLines={1}>{ticket.subject}</Text>
+        {isAdmin && ticket.users ? (
+          <Text style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, marginTop: 2 }}>{ticket.users.full_name} · {ticket.users.phone}</Text>
+        ) : null}
+      </View>
+
+      {isAdmin && (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, paddingTop: 12 }}>
+          {TICKET_STATUSES_LIST.map((st) => (
+            <TouchableOpacity key={st} style={adminPillStyle(colors, ticket.status === st)} onPress={() => setStatus(st)} disabled={sending}>
+              <Text style={{ color: ticket.status === st ? '#fff' : colors.text, fontWeight: '600', fontSize: 12 }}>{TICKET_STATUS_LABELS[st]}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'} keyboardVerticalOffset={90}>
+        <ScrollView style={s.body} contentContainerStyle={{ paddingBottom: 20 }}>
+          {(ticket.messages || []).map((m, i) => {
+            const fromAdmin = m.sender === 'admin';
+            return (
+              <View key={i} style={{ alignSelf: fromAdmin ? 'flex-start' : 'flex-end', maxWidth: '85%', marginBottom: 10 }}>
+                <View style={{ backgroundColor: fromAdmin ? colors.card : colors.accent, borderRadius: 12, padding: 12 }}>
+                  <Text style={{ color: fromAdmin ? colors.text : '#fff' }}>{m.text}</Text>
+                </View>
+                <Text style={{ color: colors.subtext, fontSize: 10, marginTop: 3, textAlign: fromAdmin ? 'left' : 'right' }}>
+                  {fromAdmin ? 'Support' : 'You'} · {new Date(m.createdAt).toLocaleString()}
+                </Text>
+              </View>
+            );
+          })}
+        </ScrollView>
+
+        {!closed ? (
+          <View style={{ flexDirection: 'row', padding: 14, borderTopWidth: 1, borderTopColor: colors.inputBorder, alignItems: 'flex-end' }}>
+            <TextInput
+              style={[s.input, { flex: 1, marginRight: 10, maxHeight: 100 }]}
+              placeholder="Type a reply..."
+              placeholderTextColor={colors.subtext}
+              value={reply}
+              onChangeText={setReply}
+              multiline
+            />
+            <TouchableOpacity onPress={send} disabled={sending || !reply.trim()} style={{ padding: 8 }}>
+              {sending ? <ActivityIndicator color={colors.accent} /> : <Ionicons name="send" size={24} color={colors.accent} />}
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={{ padding: 16, alignItems: 'center' }}>
+            <Text style={{ color: colors.subtext, fontSize: 12 }}>This ticket is closed.</Text>
+          </View>
+        )}
+      </KeyboardAvoidingView>
+    </SafeAreaView>
+  );
+}
+const TICKET_STATUSES_LIST = ['open', 'in_progress', 'resolved', 'closed'];
 
 // ─── Delete Account Screen ─────────────────────────────────────────────────
 function DeleteAccountScreen({ token, onBack, onDeleted, onLogout }) {
@@ -1827,6 +2110,7 @@ function TransactionPinModal({ visible, onResolve }) {
 
   return (
     <Modal visible={visible} animationType="fade" transparent>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={s.modalOverlay}>
         <View style={s.modalCard}>
           <View style={s.modalHeader}>
@@ -1928,6 +2212,7 @@ function TransactionPinModal({ visible, onResolve }) {
           )}
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -2082,6 +2367,7 @@ function FundWalletModal({ visible, onClose, token, user, onFunded, onUserRefres
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={s.modalOverlay}>
         <View style={s.modalCard}>
           <View style={s.modalHeader}>
@@ -2213,6 +2499,7 @@ function FundWalletModal({ visible, onClose, token, user, onFunded, onUserRefres
             </View>
           </View>
         </View>
+      </KeyboardAvoidingView>
       </Modal>
   );
 }
@@ -2299,6 +2586,7 @@ function TransferModal({ visible, onClose, token, user, wallet, onTransferred })
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={s.modalOverlay}>
         <View style={s.modalCard}>
           <View style={s.modalHeader}>
@@ -2358,6 +2646,7 @@ function TransferModal({ visible, onClose, token, user, wallet, onTransferred })
           </TouchableOpacity>
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -2472,6 +2761,7 @@ function WithdrawModal({ visible, onClose, token, user, wallet, onWithdrawn }) {
 
   return (
     <Modal visible={visible} animationType="slide" transparent>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
       <View style={s.modalOverlay}>
         <View style={s.modalCard}>
           <View style={s.modalHeader}>
@@ -2551,6 +2841,7 @@ function WithdrawModal({ visible, onClose, token, user, wallet, onWithdrawn }) {
           )}
         </View>
       </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
@@ -7378,6 +7669,170 @@ function AdminFailoverLogScreen({ token, onBack }) {
   );
 }
 
+// ─── Admin: App Version / Force Update settings ─────────────────────────────
+function AdminAppVersionScreen({ token, onBack }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [settings, setSettings] = useState({ minVersion: '', latestVersion: '', updateUrl: '', message: '' });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await api('/api/v1/admin/app-version', { token });
+      setSettings(data);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const save = async () => {
+    if (!settings.minVersion || !settings.latestVersion) return Alert.alert('Missing fields', 'Minimum and latest version are both required');
+    setSaving(true);
+    try {
+      const data = await api('/api/v1/admin/app-version', { method: 'PUT', token, body: settings });
+      setSettings(data);
+      Alert.alert('Saved', 'App version settings updated');
+    } catch (e) { Alert.alert('Failed', e.message); }
+    setSaving(false);
+  };
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AdminToolHeader title="App Version" subtitle="Force old builds to update before they can use the app" onBack={onBack} colors={colors} />
+      {loading ? (
+        <ActivityIndicator color={colors.accent} style={{ marginTop: 30 }} />
+      ) : (
+        <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+        <ScrollView style={{ flex: 1, paddingHorizontal: 20, marginTop: 16 }} contentContainerStyle={{ paddingBottom: 40 }}>
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Minimum version</Text>
+            <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 8 }}>
+              Anyone below this is blocked with an "Update Required" screen until they update.
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="e.g. 1.0.0"
+              placeholderTextColor={colors.subtext}
+              value={settings.minVersion}
+              onChangeText={(v) => setSettings((p) => ({ ...p, minVersion: v }))}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Latest version</Text>
+            <Text style={{ color: colors.subtext, fontSize: 12, marginBottom: 8 }}>
+              Used only to show a "new version available" indicator — doesn't block anyone.
+            </Text>
+            <TextInput
+              style={s.input}
+              placeholder="e.g. 1.2.0"
+              placeholderTextColor={colors.subtext}
+              value={settings.latestVersion}
+              onChangeText={(v) => setSettings((p) => ({ ...p, latestVersion: v }))}
+              autoCapitalize="none"
+            />
+          </View>
+
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Update link</Text>
+            <TextInput
+              style={s.input}
+              placeholder="Play Store URL"
+              placeholderTextColor={colors.subtext}
+              value={settings.updateUrl}
+              onChangeText={(v) => setSettings((p) => ({ ...p, updateUrl: v }))}
+              autoCapitalize="none"
+              keyboardType="url"
+            />
+          </View>
+
+          <View style={adminCardStyle(colors)}>
+            <Text style={{ color: colors.text, fontWeight: '700', marginBottom: 4 }}>Message shown to blocked users</Text>
+            <TextInput
+              style={[s.input, { height: 80, textAlignVertical: 'top' }]}
+              placeholder="A new version of Gora Data is available..."
+              placeholderTextColor={colors.subtext}
+              value={settings.message}
+              onChangeText={(v) => setSettings((p) => ({ ...p, message: v }))}
+              multiline
+            />
+          </View>
+
+          <TouchableOpacity style={[s.fundBtn, { marginTop: 6, opacity: saving ? 0.6 : 1 }]} onPress={save} disabled={saving}>
+            {saving ? <ActivityIndicator color="#fff" /> : <Text style={s.fundBtnText}>Save</Text>}
+          </TouchableOpacity>
+        </ScrollView>
+        </KeyboardAvoidingView>
+      )}
+    </SafeAreaView>
+  );
+}
+
+// ─── Admin: Support Tickets ──────────────────────────────────────────────────
+function AdminSupportTicketsScreen({ token, onBack }) {
+  const { colors } = useTheme();
+  const s = makeStyles(colors);
+  const [tickets, setTickets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [statusFilter, setStatusFilter] = useState('open');
+  const [openTicketId, setOpenTicketId] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const qs = statusFilter ? `?status=${statusFilter}&limit=100` : '?limit=100';
+      const data = await api(`/api/v1/admin/support/tickets${qs}`, { token });
+      setTickets(Array.isArray(data) ? data : []);
+    } catch (e) { Alert.alert('Error', e.message); }
+    setLoading(false);
+  }, [token, statusFilter]);
+
+  useEffect(() => { load(); }, [load]);
+
+  if (openTicketId) {
+    return <TicketDetailScreen token={token} ticketId={openTicketId} isAdmin onBack={() => { setOpenTicketId(null); load(); }} />;
+  }
+
+  return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: colors.bg }}>
+      <AdminToolHeader title="Support Tickets" subtitle="Complaints and questions from users" onBack={onBack} colors={colors} />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 20, marginTop: 16 }}>
+        {['open', 'in_progress', 'resolved', 'closed', ''].map((f) => (
+          <TouchableOpacity key={f || 'all'} style={adminPillStyle(colors, statusFilter === f)} onPress={() => setStatusFilter(f)}>
+            <Text style={{ color: statusFilter === f ? '#fff' : colors.text, fontWeight: '600', fontSize: 12 }}>
+              {f ? TICKET_STATUS_LABELS[f] : 'All'}
+            </Text>
+          </TouchableOpacity>
+        ))}
+      </View>
+      <ScrollView style={{ flex: 1, paddingHorizontal: 20, marginTop: 8 }} contentContainerStyle={{ paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={false} onRefresh={load} colors={[colors.accent]} />}>
+        {loading && <ActivityIndicator color={colors.accent} />}
+        {!loading && tickets.length === 0 && <Text style={{ color: colors.subtext }}>No tickets here.</Text>}
+        {tickets.map((t) => (
+          <TouchableOpacity key={t.id} style={adminCardStyle(colors)} onPress={() => setOpenTicketId(t.id)}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+              <Text style={{ color: colors.text, fontWeight: '700', fontSize: 13.5, flex: 1 }} numberOfLines={1}>{t.subject}</Text>
+              <View style={{ backgroundColor: TICKET_STATUS_COLORS[t.status], borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 8 }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '700' }}>{TICKET_STATUS_LABELS[t.status]}</Text>
+              </View>
+            </View>
+            <Text style={{ color: colors.accent, fontSize: 12, marginBottom: 4 }}>{t.users?.full_name} · {t.users?.phone}</Text>
+            {t.lastMessage ? (
+              <Text style={{ color: colors.subtext, fontSize: 12 }} numberOfLines={2}>
+                {t.lastMessage.sender === 'admin' ? 'You: ' : ''}{t.lastMessage.text}
+              </Text>
+            ) : null}
+          </TouchableOpacity>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
 // ─── Admin: Audit Log (WHO did WHAT to WHOM, and WHEN) ─────────────────────────
 function AdminAuditLogScreen({ token, onBack }) {
   const { colors } = useTheme();
@@ -8521,6 +8976,8 @@ function AdminScreen({ token }) {
   if (tool === 'pricing') return <AdminPricingScreen token={token} onBack={back} />;
   if (tool === 'failoverLog') return <AdminFailoverLogScreen token={token} onBack={back} />;
   if (tool === 'auditLog') return <AdminAuditLogScreen token={token} onBack={back} />;
+  if (tool === 'appVersion') return <AdminAppVersionScreen token={token} onBack={back} />;
+  if (tool === 'supportTickets') return <AdminSupportTicketsScreen token={token} onBack={back} />;
   if (tool === 'providerLogs') return <AdminProviderLogsScreen token={token} onBack={back} />;
   if (tool === 'reconciler') return <AdminGatewayReconcilerScreen token={token} onBack={back} />;
   if (tool === 'pendingPurchases') return <AdminPendingPurchasesScreen token={token} onBack={back} />;
@@ -8674,6 +9131,8 @@ function AdminOverview({ token, onOpenTool }) {
           { key: 'pricing', icon: 'pricetag-outline', label: 'Pricing & Margins', hint: 'Global and per-tier markups' },
           { key: 'failoverLog', icon: 'swap-horizontal-outline', label: 'Failover Log', hint: 'Automatic provider switch history' },
           { key: 'auditLog', icon: 'shield-checkmark-outline', label: 'Audit Log', hint: 'Every admin action — who, what, when' },
+          { key: 'appVersion', icon: 'phone-portrait-outline', label: 'App Version', hint: 'Force old builds to update' },
+          { key: 'supportTickets', icon: 'chatbubbles-outline', label: 'Support Tickets', hint: 'Complaints and questions from users' },
           { key: 'providerLogs', icon: 'document-text-outline', label: 'Provider API Logs', hint: 'Raw request/response payloads' },
           { key: 'reconciler', icon: 'git-compare-outline', label: 'Gateway Reconciler', hint: 'Match webhooks to wallets' },
           { key: 'pendingPurchases', icon: 'alert-circle-outline', label: 'Pending Purchases', hint: 'Ambiguous provider failures — confirm or refund' },
@@ -9248,7 +9707,7 @@ function AppInner() {
   }
 
   if (openService === 'support') {
-    return <SupportScreen onBack={() => setOpenService('settings')} />;
+    return <SupportScreen token={token} onBack={() => setOpenService('settings')} />;
   }
 
   if (openService === 'terms') {
@@ -9329,13 +9788,107 @@ class AppErrorBoundary extends React.Component {
   }
 }
 
+// ─── Network status banner ──────────────────────────────────────────────────
+// Distinct from ForceUpdateGate below: this doesn't block anything — the app
+// stays fully usable (cached screens, navigation) while offline, since most
+// of the UI doesn't strictly need a live connection every second. It just
+// makes the *state* visible, so a stalled action reads as "no connection"
+// instead of "this app is broken" — the "app just hangs mid-transaction with
+// no explanation" gap. The api() helper above gives a friendly error message
+// on individual failed requests; this banner is the ambient signal that
+// explains why those failures are happening before the user even taps anything.
+function NetworkBanner() {
+  const { colors } = useTheme();
+  const [isOffline, setIsOffline] = useState(false);
+
+  useEffect(() => {
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      // isInternetReachable can be null while NetInfo is still figuring it out
+      // (common right after app launch) — treat null as "assume online" rather
+      // than flashing a false offline banner on every cold start.
+      const offline = state.isConnected === false || state.isInternetReachable === false;
+      setIsOffline(offline);
+    });
+    return () => unsubscribe();
+  }, []);
+
+  if (!isOffline) return null;
+
+  return (
+    <View style={{ backgroundColor: '#dc2626', paddingVertical: 8, paddingHorizontal: 16, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}>
+      <Ionicons name="cloud-offline-outline" size={16} color="#fff" style={{ marginRight: 8 }} />
+      <Text style={{ color: '#fff', fontSize: 12.5, fontWeight: '600' }}>No internet connection</Text>
+    </View>
+  );
+}
+
+// ─── Force update gate ──────────────────────────────────────────────────────
+// Checked before anything else renders. If the backend says this build is too
+// old (admin sets the cutoff via /api/v1/admin/app-version), the app never
+// gets past this screen — no login, no cached data shown, nothing — because a
+// build old enough to be blocked may not handle current API responses
+// correctly at all. Fails open (renders the app normally) on any network
+// error, so a flaky connection or the version-check endpoint itself being
+// briefly down never locks a user out of an app that's actually fine.
+function ForceUpdateGate({ children }) {
+  const [checking, setChecking] = useState(true);
+  const [blockInfo, setBlockInfo] = useState(null); // { message, updateUrl } or null
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const currentVersion = Constants.expoConfig?.version || '0.0.0';
+        const data = await api(`/api/v1/app/version-check?version=${encodeURIComponent(currentVersion)}`, {});
+        if (data?.forceUpdate) {
+          setBlockInfo({ message: data.message, updateUrl: data.updateUrl });
+        }
+      } catch (e) {
+        // Fail open — see comment above.
+      } finally {
+        setChecking(false);
+      }
+    })();
+  }, []);
+
+  if (checking) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' }}>
+        <ActivityIndicator color="#4f46e5" />
+      </SafeAreaView>
+    );
+  }
+
+  if (blockInfo) {
+    return (
+      <SafeAreaView style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center', padding: 28 }}>
+        <Ionicons name="cloud-download-outline" size={56} color="#4f46e5" />
+        <Text style={{ fontSize: 19, fontWeight: '700', marginTop: 18, textAlign: 'center' }}>Update Required</Text>
+        <Text style={{ fontSize: 14, color: '#6b7280', marginTop: 10, textAlign: 'center', lineHeight: 20 }}>
+          {blockInfo.message}
+        </Text>
+        <TouchableOpacity
+          onPress={() => Linking.openURL(blockInfo.updateUrl)}
+          style={{ backgroundColor: '#4f46e5', paddingHorizontal: 28, paddingVertical: 13, borderRadius: 10, marginTop: 24 }}
+        >
+          <Text style={{ color: '#fff', fontWeight: '600', fontSize: 15 }}>Update Now</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
+
+  return children;
+}
+
 export default function App() {
   return (
     <AppErrorBoundary>
-      <ThemeProvider>
-        <AppInner />
-        <TransactionPinModalHost />
-      </ThemeProvider>
+      <ForceUpdateGate>
+        <ThemeProvider>
+          <NetworkBanner />
+          <AppInner />
+          <TransactionPinModalHost />
+        </ThemeProvider>
+      </ForceUpdateGate>
     </AppErrorBoundary>
   );
 }
